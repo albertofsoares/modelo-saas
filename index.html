@@ -345,6 +345,33 @@
             display: none;
             background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer;
         }
+
+        /* --- Modal Styles --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(5px);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 1000; opacity: 0; pointer-events: none; transition: var(--transition);
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal {
+            background: var(--bg-surface); padding: 30px; border-radius: 16px;
+            width: 100%; max-width: 400px; border: 1px solid var(--border-color);
+            transform: translateY(20px); transition: var(--transition);
+        }
+        .modal-overlay.active .modal { transform: translateY(0); }
+        .modal h3 { margin-bottom: 20px; font-size: 1.2rem; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-size: 0.85rem; color: var(--text-muted); }
+        .form-group input, .form-group select {
+            width: 100%; padding: 10px 15px; background: var(--bg-body);
+            border: 1px solid var(--border-color); border-radius: 8px;
+            color: var(--text-main); outline: none;
+        }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .btn-primary { background: var(--primary); color: #fff; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; }
+        .btn-secondary { background: transparent; color: var(--text-main); padding: 10px 20px; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; }
+
     </style>
 </head>
 <body>
@@ -389,7 +416,7 @@
             </div>
             <div class="header-actions">
                 <button class="icon-btn"><i class='bx bx-bell'></i></button>
-                <button class="icon-btn" style="background: var(--primary); border-color: var(--primary);"><i class='bx bx-plus'></i></button>
+                <button class="icon-btn" id="openModalBtn" style="background: var(--primary); border-color: var(--primary);"><i class='bx bx-plus'></i></button>
             </div>
         </header>
 
@@ -399,9 +426,39 @@
         </div>
     </main>
 
+    <!-- Modal Adicionar Transação -->
+    <div class="modal-overlay" id="transactionModal">
+        <div class="modal">
+            <h3>Nova Transação</h3>
+            <form id="transactionForm">
+                <div class="form-group">
+                    <label>Cliente / Entidade</label>
+                    <input type="text" id="txClient" required placeholder="Ex: Apple Inc.">
+                </div>
+                <div class="form-group">
+                    <label>Valor (€) - Use negativo para saídas</label>
+                    <input type="number" id="txAmount" step="0.01" required placeholder="Ex: 1500.00 ou -500.00">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="txStatus">
+                        <option value="completed">Concluído</option>
+                        <option value="pending">Pendente</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="closeModalBtn">Cancelar</button>
+                    <button type="submit" class="btn-primary">Adicionar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Lógica da Single Page Application (SPA) -->
     <script>
         // --- 1. Estado da Aplicação e Dados Simulados (Como se viesse de uma API) ---
+        let currentView = 'dashboard'; // Variável para controlar em qual tela estamos
+        
         const appState = {
             balance: "€ 124.500,00",
             income: "+ € 14.200,50",
@@ -566,9 +623,12 @@
         }
 
         // Função principal de navegação (Renderiza as páginas sem recarregar o navegador)
-        function navigateTo(viewName) {
-            // Simula um tempo de carregamento de rede (500ms)
-            appContainer.innerHTML = `<div class="loader-container"><div class="loader"></div></div>`;
+        function navigateTo(viewName, showLoader = true) {
+            currentView = viewName; // Salva a view atual
+            
+            if(showLoader) {
+                appContainer.innerHTML = `<div class="loader-container"><div class="loader"></div></div>`;
+            }
             
             setTimeout(() => {
                 switch(viewName) {
@@ -588,7 +648,7 @@
                     default:
                         appContainer.innerHTML = DashboardView();
                 }
-            }, 300); // 300ms de "falso delay" para o cliente sentir que os dados foram processados
+            }, showLoader ? 300 : 0); // 300ms de "falso delay" ou 0ms se for uma atualização instantânea de dados
         }
 
         // --- 4. Event Listeners ---
@@ -621,6 +681,54 @@
         window.onload = () => {
             navigateTo('dashboard');
         };
+
+        // --- 5. Lógica do Modal e Adição de Dados ---
+        const modal = document.getElementById('transactionModal');
+        const openModalBtn = document.getElementById('openModalBtn');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const form = document.getElementById('transactionForm');
+
+        // Abrir/Fechar Modal
+        openModalBtn.addEventListener('click', () => modal.classList.add('active'));
+        closeModalBtn.addEventListener('click', () => modal.classList.remove('active'));
+
+        // Lidar com o envio do formulário
+        form.addEventListener('submit', (e) => {
+            e.preventDefault(); // Impede o recarregamento da página (Crucial numa SPA)
+            
+            // 1. Coleta os valores do formulário
+            const client = document.getElementById('txClient').value;
+            const amountVal = parseFloat(document.getElementById('txAmount').value);
+            const status = document.getElementById('txStatus').value;
+            
+            // 2. Formata o valor monetário corretamente para o modelo
+            const isNegative = amountVal < 0;
+            const formattedAmount = (isNegative ? '- € ' : '€ ') + Math.abs(amountVal).toLocaleString('pt-PT', { minimumFractionDigits: 2 });
+            
+            // 3. Cria o objeto da nova transação
+            const newTx = {
+                id: "#TRX-" + Math.floor(Math.random() * 10000).toString().padStart(4, '0'),
+                client: client,
+                date: "Agora mesmo",
+                amount: formattedAmount,
+                status: status
+            };
+
+            // 4. Atualiza o Estado Global da Aplicação
+            appState.transactions.unshift(newTx); // Adiciona no começo da lista
+            
+            // 5. Atualiza o Saldo Total Dinamicamente (Extrai o número, soma, e devolve como string)
+            let currentBalance = parseFloat(appState.balance.replace(/[^0-9,-]+/g,"").replace(",", "."));
+            currentBalance += amountVal;
+            appState.balance = '€ ' + currentBalance.toLocaleString('pt-PT', { minimumFractionDigits: 2 });
+
+            // 6. Limpa o formulário e fecha o modal
+            form.reset();
+            modal.classList.remove('active');
+
+            // 7. Re-renderiza a tela atual (magia da SPA acontecendo)
+            navigateTo(currentView, false); 
+        });
 
     </script>
 </body>
